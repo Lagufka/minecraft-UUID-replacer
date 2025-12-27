@@ -6,6 +6,7 @@ Tool to fully replace player UUIDs in Minecraft world files.
 ```bash
 python uuid_migrator.py <world_path> [--config <path_to_config>] [--dry-run]
 ```
+```--dry-run``` using for just showing files to change. **NOT changing them**
 
 ## Config
 Create `uuid_config.yml`:
