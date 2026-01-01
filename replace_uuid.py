@@ -103,9 +103,9 @@ def rename_file_if_needed(path: str, cfg: Dict[str, Any]) -> str:
 # NBT processing
 # ============================================================
 
-def replace_intarray_uuid(obj: IntArray, cfg: Dict[str, Any]) -> bool:
+def replace_intarray_uuid(parent: Compound, key: str, obj: IntArray, cfg: Dict[str, Any]) -> bool:
     if len(obj) == 4 and [int(x) for x in obj] == cfg["old_ints"]:
-        obj[:] = cfg["new_ints"]
+        parent[key] = IntArray(cfg["new_ints"])
         return True
     return False
 
@@ -119,6 +119,7 @@ def replace_string_uuid(obj: String, cfg: Dict[str, Any]) -> bool:
 
 def replace_compound_uuid(obj: Compound, cfg: Dict[str, Any]) -> int:
     count = 0
+
     # UUIDMost / UUIDLeast
     if "UUIDMost" in obj and "UUIDLeast" in obj:
         old_most, old_least = cfg["old_most_least"]
@@ -127,10 +128,16 @@ def replace_compound_uuid(obj: Compound, cfg: Dict[str, Any]) -> int:
             obj["UUIDMost"] = Long(new_most)
             obj["UUIDLeast"] = Long(new_least)
             count += 1
-    # Рекурсивная обработка
-    for k, v in obj.items():
-        count += replace_uuid_in_nbt(v, cfg)
+
+    # рекурсия + IntArray
+    for k, v in list(obj.items()):
+        if isinstance(v, IntArray):
+            count += int(replace_intarray_uuid(obj, k, v, cfg))
+        else:
+            count += replace_uuid_in_nbt(v, cfg)
+
     return count
+
 
 def replace_nbtlist_uuid(obj: NBTList, cfg: Dict[str, Any]) -> int:
     count = 0
@@ -139,10 +146,7 @@ def replace_nbtlist_uuid(obj: NBTList, cfg: Dict[str, Any]) -> int:
     return count
 
 def replace_uuid_in_nbt(obj, cfg: Dict[str, Any]) -> int:
-    """Рекурсивно заменяет все UUID в объекте NBT."""
-    if isinstance(obj, IntArray):
-        return int(replace_intarray_uuid(obj, cfg))
-    elif isinstance(obj, String):
+    if isinstance(obj, String):
         return int(replace_string_uuid(obj, cfg))
     elif isinstance(obj, Compound):
         return replace_compound_uuid(obj, cfg)
