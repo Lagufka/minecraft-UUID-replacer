@@ -16,12 +16,12 @@ to: 'new-UUID'
 ```
 # Preview
 ```bash
-python replace_uuid.py ./world --config migration.yml --dry-run
+python replace_uuid.py ./world --config uuid_config.yml --dry-run
 ```
 
 # Apply
 ```bash
-python replace_uuid.py ./world --config migration.yml
+python replace_uuid.py ./world --config uuid_config.yml
 ```
 
 # What it does
