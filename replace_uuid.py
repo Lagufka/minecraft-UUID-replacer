@@ -21,13 +21,17 @@ from typing import Dict, Any, Tuple
 import nbtlib
 from nbtlib import File, Compound, List as NBTList, String, IntArray, Long
 
+from mcworldlib import anvil
+
 # ============================================================
 # UUID helpers
 # ============================================================
 
+
 def to_signed(x: int) -> int:
     """Преобразует 32-битное число в signed int."""
     return x - 0x100000000 if x & 0x80000000 else x
+
 
 def uuid_to_ints(uuid_str: str) -> list[int]:
     u = uuid.UUID(uuid_str)
@@ -39,13 +43,16 @@ def uuid_to_ints(uuid_str: str) -> list[int]:
         to_signed(i & 0xFFFFFFFF),
     ]
 
+
 def uuid_to_most_least(uuid_str: str) -> Tuple[int, int]:
     u = uuid.UUID(uuid_str)
     return ((u.int >> 64) & 0xFFFFFFFFFFFFFFFF, u.int & 0xFFFFFFFFFFFFFFFF)
 
+
 # ============================================================
 # Config
 # ============================================================
+
 
 def load_config(path: str = "uuid_config.yml") -> Dict[str, Any]:
     """Загружает конфигурацию и подготавливает все формы UUID."""
@@ -72,9 +79,11 @@ def load_config(path: str = "uuid_config.yml") -> Dict[str, Any]:
         "new_most_least": uuid_to_most_least(new),
     }
 
+
 # ============================================================
 # File operations
 # ============================================================
+
 
 def safe_backup(path: str) -> str:
     """Создает резервную копию с уникальным именем."""
@@ -86,10 +95,13 @@ def safe_backup(path: str) -> str:
     shutil.copy2(path, backup_path)
     return backup_path
 
+
 def rename_file_if_needed(path: str, cfg: Dict[str, Any]) -> str:
     """Переименовывает файл, если в имени встречается UUID."""
     name = os.path.basename(path)
-    new_name = name.replace(cfg["old_str"], cfg["new_str"]).replace(cfg["old_nodash"], cfg["new_nodash"])
+    new_name = name.replace(cfg["old_str"], cfg["new_str"]).replace(
+        cfg["old_nodash"], cfg["new_nodash"]
+    )
     if new_name != name:
         new_path = os.path.join(os.path.dirname(path), new_name)
         if os.path.exists(new_path):
@@ -99,23 +111,31 @@ def rename_file_if_needed(path: str, cfg: Dict[str, Any]) -> str:
         return new_path
     return path
 
+
 # ============================================================
 # NBT processing
 # ============================================================
 
-def replace_intarray_uuid(parent: Compound, key: str, obj: IntArray, cfg: Dict[str, Any]) -> bool:
+
+def replace_intarray_uuid(
+    parent: Compound, key: str, obj: IntArray, cfg: Dict[str, Any]
+) -> bool:
     if len(obj) == 4 and [int(x) for x in obj] == cfg["old_ints"]:
         parent[key] = IntArray(cfg["new_ints"])
         return True
     return False
 
+
 def replace_string_uuid(obj: String, cfg: Dict[str, Any]) -> bool:
     text = str(obj)
-    new_text = text.replace(cfg["old_str"], cfg["new_str"]).replace(cfg["old_nodash"], cfg["new_nodash"])
+    new_text = text.replace(cfg["old_str"], cfg["new_str"]).replace(
+        cfg["old_nodash"], cfg["new_nodash"]
+    )
     if new_text != text:
         obj.value = new_text
         return True
     return False
+
 
 def replace_compound_uuid(obj: Compound, cfg: Dict[str, Any]) -> int:
     count = 0
@@ -145,6 +165,7 @@ def replace_nbtlist_uuid(obj: NBTList, cfg: Dict[str, Any]) -> int:
         count += replace_uuid_in_nbt(item, cfg)
     return count
 
+
 def replace_uuid_in_nbt(obj, cfg: Dict[str, Any]) -> int:
     if isinstance(obj, String):
         return int(replace_string_uuid(obj, cfg))
@@ -154,15 +175,78 @@ def replace_uuid_in_nbt(obj, cfg: Dict[str, Any]) -> int:
         return replace_nbtlist_uuid(obj, cfg)
     return 0
 
+
+def process_mca_file(
+    path: str, cfg: Dict[str, Any], stats: Dict[str, int], dry_run: bool
+):
+    name = os.path.basename(path)
+
+    try:
+        region = anvil.load_region(path)
+    except Exception as e:
+        print(f"  ✗ Не удалось открыть регион {name}: {e}")
+        stats["errors"] += 1
+        return
+
+    replaced_total = 0
+
+    # координаты региона берём из имени файла r.X.Z.mca
+    try:
+        _, rx, rz = name.replace(".mca", "").split(".")
+        rx, rz = int(rx), int(rz)
+    except Exception:
+        rx = rz = 0
+
+
+
+
+    for cx in range(32):
+        for cz in range(32):
+            try:
+                chunk = region[cx][cz]
+            except Exception:
+                continue
+
+            replaced_count = replace_uuid_in_nbt(chunk.data, cfg)
+            replaced_total += replaced_count
+
+            if not dry_run:
+                region[cx][cz] = chunk
+
+    if replaced_total == 0:
+        return
+
+    if dry_run:
+        print(f"  [dry-run] MCA UUID замен: {replaced_total} в {name}")
+        stats["nbt"] += replaced_total
+        return
+
+    backup = safe_backup(path)
+    try:
+        region.save(path)
+        os.remove(backup)
+        stats["nbt"] += replaced_total
+        print(f"    → UUID заменено: {replaced_total} в {name}")
+    except Exception as e:
+        shutil.copy2(backup, path)
+        print(f"  ✗ Ошибка сохранения {name}: {e}")
+        stats["errors"] += 1
+
+
 # ============================================================
 # Text/JSON processing
 # ============================================================
 
-def process_textual_file(path: str, cfg: Dict[str, Any], stats: Dict[str, int], dry_run: bool, file_type: str):
+
+def process_textual_file(
+    path: str, cfg: Dict[str, Any], stats: Dict[str, int], dry_run: bool, file_type: str
+):
     try:
         with open(path, "r", encoding="utf-8", errors="ignore") as f:
             data = f.read()
-        new_data = data.replace(cfg["old_str"], cfg["new_str"]).replace(cfg["old_nodash"], cfg["new_nodash"])
+        new_data = data.replace(cfg["old_str"], cfg["new_str"]).replace(
+            cfg["old_nodash"], cfg["new_nodash"]
+        )
         if new_data != data:
             if dry_run:
                 print(f"  [dry-run] {file_type} файл с UUID: {path}")
@@ -175,7 +259,10 @@ def process_textual_file(path: str, cfg: Dict[str, Any], stats: Dict[str, int], 
     except Exception:
         stats["errors"] += 1
 
-def process_nbt_file(path: str, cfg: Dict[str, Any], stats: Dict[str, int], dry_run: bool):
+
+def process_nbt_file(
+    path: str, cfg: Dict[str, Any], stats: Dict[str, int], dry_run: bool
+):
     name = os.path.basename(path)
     if name.startswith("level") and name not in ("level.dat", "level.dat_old"):
         return
@@ -203,9 +290,11 @@ def process_nbt_file(path: str, cfg: Dict[str, Any], stats: Dict[str, int], dry_
         print(f"  ✗ Ошибка сохранения {name}: {e}")
         stats["errors"] += 1
 
+
 # ============================================================
 # World scan
 # ============================================================
+
 
 def scan_world(world: str, cfg: Dict[str, Any], dry_run: bool) -> Dict[str, int]:
     stats = {"nbt": 0, "json": 0, "text": 0, "errors": 0}
@@ -216,21 +305,30 @@ def scan_world(world: str, cfg: Dict[str, Any], dry_run: bool) -> Dict[str, int]
             ext = os.path.splitext(path)[1].lower()
             if ext == ".dat":
                 process_nbt_file(path, cfg, stats, dry_run)
+            elif ext == ".mca":
+                process_mca_file(path, cfg, stats, dry_run)
             elif ext == ".json":
                 process_textual_file(path, cfg, stats, dry_run, "json")
             elif ext in (".txt", ".properties", ".yml", ".yaml", ".mcmeta"):
                 process_textual_file(path, cfg, stats, dry_run, "text")
+
     return stats
+
 
 # ============================================================
 # CLI
 # ============================================================
 
+
 def main():
     parser = argparse.ArgumentParser(description="Замена UUID в мире Minecraft.")
     parser.add_argument("world", help="Путь к миру")
-    parser.add_argument("--config", default="uuid_config.yml", help="Путь к YAML конфигурации")
-    parser.add_argument("--dry-run", action="store_true", help="Проверка замен без изменения файлов")
+    parser.add_argument(
+        "--config", default="uuid_config.yml", help="Путь к YAML конфигурации"
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="Проверка замен без изменения файлов"
+    )
     args = parser.parse_args()
 
     if not os.path.exists(args.world):
@@ -253,6 +351,7 @@ def main():
     print(f"JSON замен: {stats['json']}")
     print(f"Text замен: {stats['text']}")
     print(f"Ошибок: {stats['errors']}")
+
 
 if __name__ == "__main__":
     main()
