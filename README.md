@@ -6,7 +6,7 @@ Tool to fully replace player UUIDs in Minecraft world files.
 ```bash
 python replace_uuid.py <world_path> [--config <path_to_config>]
 ```
-```--dry-run``` using for just showing files to change. **NOT changing them**
+```--dry-run``` using for showing files to change. **NOT changing them**
 
 ## Config
 Create `uuid_config.yml`:
@@ -24,7 +24,8 @@ python replace_uuid.py ./world --config uuid_config.yml
 Scans world directory
 
 Replaces UUID in:
- - NBT files (.dat, .dat_old, .mca)
+ - NBT files (.dat, .dat_old)
+    - .mca not suported
  - JSON files
  - Text files
  - File names
